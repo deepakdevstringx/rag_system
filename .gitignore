@@ -1,0 +1,11 @@
+# Ignore Python cache and virtual environment files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+env/
+.venv/
+
+# Ignore ChromaDB database files
+chroma.db/

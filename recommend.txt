@@ -1,0 +1,8 @@
+pip install langchain
+pip install langchain-community
+pip install chromadb
+pip install sentence-transformers
+pip install pymupdf
+pip install langchain-text-splitters
+pip install ollama
+pip install tqdm
