@@ -129,12 +129,18 @@ def start_chat_session():
 
     while True:
         user_query = input("\n Ask a question: ").strip()
+
         if user_query.lower() == 'exit':
             break
         if not user_query:
             continue
 
-        context, citations = retrieve_context(user_query, k=3)
+        optimized_query = optimize_query(user_query)
+
+        print(f"\n🔎 Optimized query: {optimized_query}")
+
+        context, citations = retrieve_context(optimized_query, k=5)
+        # context, citations = retrieve_context(user_query, k=3)
 
         system_instruction = f"""You are a precise enterprise research assistant.
             Answer the user's question using ONLY the provided document context below. 
@@ -180,24 +186,34 @@ def start_chat_session():
         
 def optimize_query(user_query):
     prompt = f"""
-Rewrite the user's question for semantic search against an enterprise
-PDF knowledge base.
+    Rewrite the user's question for semantic search against an enterprise
+    PDF knowledge base.
 
-Rules:
-1. Fix spelling mistakes.
-2. Fix grammar.
-3. Preserve the user's original intent.
-4. Do not answer the question.
-5. Do not invent facts.
-6. Expand important abbreviations only when reasonably obvious.
-7. Add relevant synonyms when useful.
-8. Make the query specific enough for vector search.
-9. Keep it concise.
-10. Return ONLY the optimized search query.
+    Rules:
+    1. Fix spelling mistakes.
+    2. Fix grammar.
+    3. Preserve the user's original intent.
+    4. Do not answer the question.
+    5. Do not invent facts.
+    7. Add relevant synonyms when useful.
+    9. Keep it concise.
+    10. Return ONLY the optimized search query.
 
-User question:
-{user_query}
-"""
+    User question:
+    {user_query}
+    """
+
+    #   Rules:
+    #     1. Fix spelling mistakes.
+    #     2. Fix grammar.
+    #     3. Preserve the user's original intent.
+    #     4. Do not answer the question.
+    #     5. Do not invent facts.
+    #     6. Expand important abbreviations only when reasonably obvious.
+    #     7. Add relevant synonyms when useful.
+    #     8. Make the query specific enough for vector search.
+    #     9. Keep it concise.
+    #     10. Return ONLY the optimized search query.
 
     response = ollama.chat(
         model="llama3.2",
