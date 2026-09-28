@@ -1,8 +1,9 @@
 import re
-from config import CHUNK_SIZE, CHUNK_OVERLAP
 
-def recursive_sentence_splitter(text, chunk_size=CHUNK_SIZE, overlap=CHUNK_OVERLAP):
-    """Splits text cleanly on paragraphs and sentence boundaries."""
+from .config import CHUNK_SIZE, CHUNK_OVERLAP
+
+def split_text_into_chunks(text, chunk_size=CHUNK_SIZE, overlap=CHUNK_OVERLAP):
+    """Split text near sentence and paragraph boundaries with shared overlap."""
     paragraphs = re.split(r'(\n\n|\.\s+)', text)
     chunks, current_chunk = [], ""
     for item in paragraphs:

@@ -1,12 +1,14 @@
-import os
+from pathlib import Path
+
 import chromadb
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ve", "versioned_db")
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+VECTOR_DB_PATH = PROJECT_ROOT / "data" / "vector_db"
 
-client = chromadb.PersistentClient(path=DB_PATH)
+client = chromadb.PersistentClient(path=str(VECTOR_DB_PATH))
 collection = client.get_collection(name="versioned_pdf_rag")
 
-def print_database_file_list():
+def print_indexed_documents():
     """List unique source files stored in the active versioned collection."""
     all_data = collection.get(include=["metadatas"])
     metadatas = all_data.get("metadatas", [])
@@ -30,4 +32,4 @@ def print_database_file_list():
     print("==========================================\n")
 
 if __name__ == "__main__":
-    print_database_file_list()
+    print_indexed_documents()

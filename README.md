@@ -1,215 +1,72 @@
-# Local PDF RAG Chatbot
+# Local PDF RAG
 
-This project reads PDF files, creates vector embeddings locally, stores them in ChromaDB, and answers questions using Ollama.
+A local PDF question-answering application using ChromaDB for vector storage and Ollama for embeddings and responses.
 
-## Models Used
+## Layout
 
-- `nomic-embed-text`: creates embeddings for PDF chunks and user queries.
-- `llama3.2`: improves the search query and generates the final answer.
+```text
+project/
+├── data/
+│   ├── archive/                 # Processed, versioned PDF files
+│   ├── inbox/                   # PDFs waiting for indexing
+│   ├── legacy/                  # Preserved data from the previous application
+│   ├── vector_db/               # Active ChromaDB store
+│   └── document_registry.json   # Document version history
+├── scripts/
+│   ├── check_ollama.py          # Check local Ollama connectivity
+│   └── list_documents.py        # List indexed source documents
+├── src/pdf_rag/
+│   ├── chat.py                  # Interactive chat and CLI entry point
+│   ├── config.py                # Models and application paths
+│   ├── document_registry.py     # Version metadata and text diffs
+│   ├── text_splitter.py         # PDF text chunking
+│   └── vector_store.py          # PDF ingestion and retrieval
+├── tests/                       # Unit tests
+└── pyproject.toml               # Package metadata and dependencies
+```
 
-## Project Files
+Application code is in `src/pdf_rag`; PDFs, ChromaDB files, and registry state are in `data`. The project virtual environment is `.venv` and is not part of the application source tree.
 
-- `read_pdf_v2.py`: main PDF indexing and chat application.
-- `read_pdf.py`: earlier, slower version that embeds one chunk at a time.
-- `list_pdf_stored_in_db.py`: lists PDFs and chunk counts stored in ChromaDB.
-- `test_ollama.py`: basic Ollama connectivity test.
-- `pdfs/`: place PDF files here.
-- `db/`: persistent ChromaDB data. Do not delete it unless you want to rebuild the index.
-
-## First-Time Setup
-
-Run these commands from the project directory:
+## Setup
 
 ```bash
-cd /home/deepak/Devstringx/learning
 python3 -m venv .venv
 source .venv/bin/activate
-pip install pypdf chromadb ollama
-```
-
-For later sessions, only activation is needed:
-
-```bash
-cd /home/deepak/Devstringx/learning
-source .venv/bin/activate
-```
-
-## Install and Prepare Ollama
-
-Check that Ollama is installed:
-
-```bash
-ollama --version
-```
-
-Download the required models:
-
-```bash
+python -m pip install -e .
 ollama pull nomic-embed-text
 ollama pull llama3.2
 ```
 
-Check installed models:
+Ollama must be running locally. If it is not running as a service, start it in another terminal with `ollama serve`.
+
+## Run
+
+Put new PDFs in `data/inbox/`, then launch from the project root:
 
 ```bash
-ollama list
+python -m pdf_rag
 ```
 
-## Start the Ollama Server
+The app indexes pending PDFs, moves processed files into `data/archive/`, and stores embeddings in `data/vector_db/`. Enter `exit` to end the chat.
 
-Open a separate terminal and run:
+List indexed documents and their chunk counts:
 
 ```bash
-ollama serve
+python scripts/list_documents.py
 ```
 
-Leave this terminal running. If Ollama is already running as a system service, do not start a second server.
-
-The local API normally uses:
-
-```text
-http://localhost:11434
-```
-
-## Add PDFs
-
-Copy one or more PDF files into:
-
-```text
-/home/deepak/Devstringx/learning/pdfs/
-```
-
-The current application reads PDF files directly from `./pdfs`.
-
-## Start the Chatbot
-
-With the virtual environment active and Ollama running:
+Check the Ollama chat model:
 
 ```bash
-cd /home/deepak/Devstringx/learning
-source .venv/bin/activate
-python read_pdf_v2.py
+python scripts/check_ollama.py
 ```
 
-On the first run, the application will:
-
-1. Extract text from each PDF page.
-2. Split the text into overlapping chunks.
-3. Create embeddings with `nomic-embed-text`.
-4. Store the vectors and page metadata in ChromaDB.
-5. Start the interactive chat.
-
-Ask questions at the prompt. Type the following to stop:
-
-```text
-exit
-```
-
-## Run It Again
-
-After the first indexing run, the application detects the existing ChromaDB collection and reuses it:
+Run the unit tests with the standard library:
 
 ```bash
-python read_pdf_v2.py
+PYTHONPATH=src python -m unittest discover -s tests -v
 ```
 
-New PDFs are not automatically added when the collection already contains chunks. To rebuild the index after adding or replacing PDFs, stop the application and remove the local database first:
+## Data Safety
 
-```bash
-rm -rf db
-python read_pdf_v2.py
-```
-
-Only run that command when you intentionally want to rebuild the index.
-
-## Inspect Stored PDFs
-
-To see the PDFs and chunk count currently stored in ChromaDB:
-
-```bash
-python list_pdf_stored_in_db.py
-```
-
-To see the number of stored vectors directly:
-
-```bash
-python -c "import chromadb; c=chromadb.PersistentClient(path='./db').get_or_create_collection(name='smart_pdf_rag'); print(c.count())"
-```
-
-## Test Ollama
-
-Run the basic Ollama test:
-
-```bash
-python test_ollama.py
-```
-
-Test the embedding model manually:
-
-```bash
-ollama run nomic-embed-text
-```
-
-Test the chat model manually:
-
-```bash
-ollama run llama3.2
-```
-
-## Useful Ollama Commands
-
-```bash
-ollama ps                 # Show running models
-ollama show llama3.2      # Show model details
-ollama show nomic-embed-text
-ollama rm <model-name>    # Remove a model
-ollama help               # Show command help
-```
-
-## Troubleshooting
-
-### `Connection refused` or Ollama connection error
-
-Make sure Ollama is running:
-
-```bash
-ollama serve
-```
-
-### Model not found
-
-Download both required models:
-
-```bash
-ollama pull nomic-embed-text
-ollama pull llama3.2
-```
-
-### No PDF files found
-
-Confirm that files have a `.pdf` extension and are inside the `pdfs/` directory:
-
-```bash
-ls -lh pdfs
-```
-
-### Answers do not include a newly added PDF
-
-The existing ChromaDB index is reused. Rebuild it after adding documents:
-
-```bash
-rm -rf db
-python read_pdf_v2.py
-```
-
-### Check Python packages
-
-```bash
-pip list | grep -E 'chromadb|ollama|pypdf'
-```
-
-## Deactivate the Virtual Environment
-
-```bash
-deactivate
-```
+The previous unversioned PDFs and ChromaDB data are preserved under `data/legacy/`. The active PDFs, registry, and vector index are also retained as local data. Removing a vector database deletes its index and may require re-indexing the PDFs.

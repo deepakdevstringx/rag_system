@@ -1,9 +1,10 @@
 import ollama
-from config import LLM_MODEL
-from vector_db import process_unprocessed_folder, retrieve_context
 
-def optimize_query(user_query):
-    """Rewrites user query for improved retrieval accuracy."""
+from .config import CHAT_MODEL
+from .vector_store import ingest_pending_pdfs, retrieve_context
+
+def optimize_search_query(user_query):
+    """Rewrite a question for semantic retrieval without changing its intent."""
     prompt = f"""
     Rewrite the user's question for semantic search against an enterprise PDF knowledge base.
     Rules:
@@ -17,7 +18,7 @@ def optimize_query(user_query):
     {user_query}
     """
     response = ollama.chat(
-        model=LLM_MODEL,
+        model=CHAT_MODEL,
         messages=[
             {"role": "system", "content": "You optimize user queries for semantic search."},
             {"role": "user", "content": prompt}
@@ -26,8 +27,8 @@ def optimize_query(user_query):
     )
     return response["message"]["content"].strip()
 
-def start_chat_session():
-    """Main interactive chat loop maintaining history and context retrieval."""
+def run_chat_session():
+    """Run the interactive question-answering loop and maintain recent history."""
     chat_history = []
     print("\nSmart RAG Assistant Ready! Type 'exit' to quit.\n")
 
@@ -39,7 +40,7 @@ def start_chat_session():
         if not user_query:
             continue
 
-        optimized_query = optimize_query(user_query)
+        optimized_query = optimize_search_query(user_query)
         print(f"\n🔎 Optimized query: {optimized_query}")
 
         context, citations = retrieve_context(optimized_query, k=5)
@@ -60,7 +61,7 @@ def start_chat_session():
         print("\n🤔 Searching and generating response...\n")
         
         response_stream = ollama.chat(
-            model=LLM_MODEL,
+            model=CHAT_MODEL,
             messages=messages,
             stream=True,
             keep_alive="24h",
@@ -85,9 +86,10 @@ def start_chat_session():
         chat_history.append({"role": "user", "content": user_query})
         chat_history.append({"role": "assistant", "content": full_response})
 
+def main():
+    """Index pending PDFs before starting the interactive chat session."""
+    ingest_pending_pdfs()
+    run_chat_session()
+
 if __name__ == "__main__":
-    # Check for pending PDFs in ./unprocessed_pdfs and process them
-    process_unprocessed_folder()
-    
-    # Launch chat
-    start_chat_session()
+    main()
