@@ -8,6 +8,7 @@ from .chat_model import (
     stream_chat,
 )
 from .vector_store import ingest_pending_pdfs, retrieve_context, collection
+from .document_registry import get_document_version_changes, load_registry
 
 
 def is_simple_greeting(user_query):
@@ -21,6 +22,131 @@ def is_simple_greeting(user_query):
         "good afternoon",
         "good evening",
     }
+
+
+def is_version_comparison_query(user_query):
+    """Detect requests to compare document versions or describe their changes."""
+    comparison_terms = (
+        "difference", "differences", "diff", "changed", "changes", "compare",
+        "comparison", "old version", "previous version", "latest version",
+        "version history", "each version",
+    )
+    normalized_query = user_query.lower()
+    return any(term in normalized_query for term in comparison_terms)
+
+
+def find_document_name_in_query(user_query, document_names):
+    """Find the best registry filename match using meaningful words in the query."""
+    ignored_words = {
+        "the", "a", "an", "file", "document", "pdf", "version", "versions",
+        "old", "latest", "previous", "current", "difference", "differences",
+        "diff", "change", "changes", "changed", "compare", "comparison",
+        "between", "from", "and", "to", "for", "in", "of", "what", "each",
+    }
+    query_words = {
+        word for word in re.findall(r"[a-z0-9]+", user_query.lower())
+        if word not in ignored_words
+    }
+    if not query_words:
+        return None
+
+    matches = []
+    for document_name in document_names:
+        name_words = set(re.findall(r"[a-z0-9]+", document_name.lower()))
+        overlap = query_words & name_words
+        if overlap:
+            matches.append((len(overlap), len(overlap) / len(name_words), document_name))
+
+    if not matches:
+        return None
+    matches.sort(reverse=True)
+    if len(matches) > 1 and matches[0][:2] == matches[1][:2]:
+        return None
+    return matches[0][2]
+
+
+def get_requested_version_pairs(user_query, version_numbers):
+    """Select an explicit version pair or each adjacent pair when unspecified."""
+    normalized_versions = sorted(set(version_numbers))
+    explicit_versions = re.findall(
+        r"\bv(?:ersion)?\s*(\d+)\b", user_query.lower()
+    )
+    if len(explicit_versions) >= 2:
+        first_version, second_version = map(int, explicit_versions[:2])
+        if first_version in normalized_versions and second_version in normalized_versions:
+            return [(first_version, second_version)]
+        return []
+    return list(zip(normalized_versions, normalized_versions[1:]))
+
+
+def build_version_comparison_context(user_query):
+    """Build a focused comparison context from stored text for the named PDF."""
+    registry = load_registry()
+    source_name = find_document_name_in_query(user_query, registry)
+    if source_name is None:
+        return None, set()
+
+    history = registry[source_name]["history"]
+    version_numbers = [int(version) for version in history]
+    version_pairs = get_requested_version_pairs(user_query, version_numbers)
+    if not version_pairs:
+        return (
+            f"Only one version is available for '{source_name}', or the requested versions were not found.",
+            {f"[{source_name} version history]"},
+        )
+
+    sections = []
+    citations = set()
+    for first_version, second_version in version_pairs:
+        comparison = get_document_version_changes(
+            source_name, first_version, second_version
+        )
+        if comparison is None:
+            continue
+        citation = f"[{source_name} - v{first_version} to v{second_version}]"
+        citations.add(citation)
+        if not comparison["change_sections"]:
+            sections.append(f"{citation}\nNo extracted text changes were found.")
+            continue
+
+        changed_text = []
+        for section_number, change in enumerate(comparison["change_sections"], start=1):
+            changed_text.append(f"Change section {section_number}:")
+            if change["removed"]:
+                changed_text.append(f"Removed from v{first_version}:\n{change['removed']}")
+            if change["added"]:
+                changed_text.append(f"Added in v{second_version}:\n{change['added']}")
+        sections.append(f"{citation}\n" + "\n\n".join(changed_text))
+
+    if not sections:
+        return None, set()
+    return "\n\n---\n\n".join(sections), citations
+
+
+def summarize_document_version_changes(user_query, comparison_context, chat_history):
+    """Explain the meaning of changes using only added and removed version text."""
+    prompt = f"""Compare the document versions using only the change sections below.
+    For every version transition, explain:
+    - what was removed, added, or materially changed;
+    - the practical meaning or intent of those changes, without inventing implications;
+    - whether wording changed without changing the apparent meaning.
+    Keep separate headings for each version transition. If extracted text is ambiguous, say so.
+    Do not describe unchanged content as a change.
+
+    User request: {user_query}
+
+    Changed text only:
+    {comparison_context}
+    """
+    return invoke_chat(
+        [
+            {"role": "system", "content": "You accurately explain document revision changes."},
+            *chat_history[-4:],
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.0,
+        max_tokens=1200,
+    )
 
 
 def optimize_and_normalize_query(user_query, chat_history):
@@ -180,6 +306,39 @@ def run_chat_session():
                 [
                     {"role": "user", "content": user_query},
                     {"role": "assistant", "content": greeting_response},
+                ]
+            )
+            continue
+
+        if is_version_comparison_query(user_query):
+            comparison_context, comparison_citations = build_version_comparison_context(
+                user_query
+            )
+            if comparison_context is None:
+                comparison_answer = (
+                    "I couldn't identify a versioned document from that request. "
+                    "Please include part of its filename, for example: "
+                    "'compare Hackathon 2026 versions'."
+                )
+            elif comparison_context.startswith("Only one version is available"):
+                comparison_answer = comparison_context
+            else:
+                comparison_answer = summarize_document_version_changes(
+                    user_query,
+                    comparison_context,
+                    chat_history,
+                )
+
+            print(f"\n🤖 Assistant: {comparison_answer}")
+            if comparison_citations:
+                print("\n\n📄 Versions compared:")
+                for citation in sorted(comparison_citations):
+                    print(f"  • {citation}")
+            print("\n" + "-" * 60)
+            chat_history.extend(
+                [
+                    {"role": "user", "content": user_query},
+                    {"role": "assistant", "content": comparison_answer},
                 ]
             )
             continue

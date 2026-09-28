@@ -1,0 +1,15 @@
+# Vector storage and PDF parsing
+chromadb
+pypdf
+
+# Existing Ollama embeddings and local chat provider
+ollama
+langchain-ollama
+
+# LangChain chat interface and cloud providers
+langchain-core
+langchain-google-genai
+langchain-anthropic
+
+# Load local configuration from .env
+python-dotenv

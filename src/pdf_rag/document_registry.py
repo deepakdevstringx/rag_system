@@ -52,3 +52,38 @@ def get_document_diff(source_name, first_version, second_version):
         lineterm=""
     )
     return "\n".join(diff)
+
+
+def get_document_version_changes(source_name, first_version, second_version):
+    """Return changed text and version metadata for one document version pair."""
+    registry = load_registry()
+    if source_name not in registry:
+        return None
+
+    history = registry[source_name]["history"]
+    first_key = str(first_version)
+    second_key = str(second_version)
+    if first_key not in history or second_key not in history:
+        return None
+
+    first_lines = history[first_key]["full_text"].splitlines()
+    second_lines = history[second_key]["full_text"].splitlines()
+    matcher = difflib.SequenceMatcher(a=first_lines, b=second_lines, autojunk=False)
+    change_sections = []
+
+    for operation, first_start, first_end, second_start, second_end in matcher.get_opcodes():
+        if operation == "equal":
+            continue
+        removed_text = "\n".join(first_lines[first_start:first_end]).strip()
+        added_text = "\n".join(second_lines[second_start:second_end]).strip()
+        if removed_text or added_text:
+            change_sections.append({"removed": removed_text, "added": added_text})
+
+    return {
+        "source_name": source_name,
+        "from_version": int(first_version),
+        "to_version": int(second_version),
+        "from_timestamp": history[first_key].get("timestamp"),
+        "to_timestamp": history[second_key].get("timestamp"),
+        "change_sections": change_sections,
+    }

@@ -32,6 +32,7 @@ Application code is in `src/pdf_rag`; PDFs, ChromaDB files, and registry state a
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
+python -m pip install -r requirements.txt
 python -m pip install -e .
 ollama pull nomic-embed-text
 ollama pull llama3.2
@@ -63,6 +64,8 @@ python -m pdf_rag
 ```
 
 The app indexes pending PDFs, moves processed files into `data/archive/`, and stores embeddings in `data/vector_db/`. Enter `exit` to end the chat.
+
+To compare a document's revisions, ask for its differences or changes, for example `What changed between versions of Hackathon 2026?`. If no specific version pair is given, the assistant compares each adjacent revision (v1 to v2, then v2 to v3, and so on). You can request a specific pair with wording such as `Compare v1 and v3 of Hackathon 2026`. The comparison uses saved extracted text and summarizes only additions and removals; documents need to have been ingested in more than one version.
 
 List indexed documents and their chunk counts:
 
