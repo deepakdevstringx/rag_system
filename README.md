@@ -1,6 +1,6 @@
 # Local PDF RAG
 
-A local PDF question-answering application using ChromaDB for vector storage and Ollama for embeddings and responses.
+A local PDF question-answering application using ChromaDB for vector storage, Ollama for embeddings, and selectable Ollama, Gemini, or Claude chat models.
 
 ## Layout
 
@@ -37,7 +37,22 @@ ollama pull nomic-embed-text
 ollama pull llama3.2
 ```
 
-Ollama must be running locally. If it is not running as a service, start it in another terminal with `ollama serve`.
+Copy `.env.example` to `.env` to set the default chat provider and model. The default is Ollama. Keep API keys in `.env`; it is ignored by Git.
+
+To use Gemini by default, set:
+
+```dotenv
+PDF_RAG_CHAT_PROVIDER=gemini
+PDF_RAG_CHAT_MODEL=gemini-2.5-flash
+GOOGLE_API_KEY=your-key
+ANTHROPIC_API_KEY=
+```
+
+To use Claude, set `PDF_RAG_CHAT_PROVIDER=claude`, choose a Claude model such as `claude-sonnet-4-5`, and set `ANTHROPIC_API_KEY` in `.env`. Gemini and Claude keys are independent; keep whichever provider keys you use in the ignored `.env` file.
+
+Ollama must be running locally when selected. If it is not running as a service, start it in another terminal with `ollama serve`. Gemini requires internet access and a valid Google AI API key.
+
+The chat model can be changed at runtime with `/provider ollama`, `/provider gemini`, `/provider claude`, or `/model MODEL_NAME`. Use `/provider` to show the active choice. Gemini requires `GOOGLE_API_KEY`; Claude requires `ANTHROPIC_API_KEY`. When Claude fails, requests fall back to Ollama `llama3.2` by default; configure this with `PDF_RAG_FALLBACK_PROVIDER` and `PDF_RAG_FALLBACK_MODEL`. The embedding model remains `nomic-embed-text` on Ollama so it matches the existing ChromaDB vectors; changing embedding models requires rebuilding the vector index.
 
 ## Run
 

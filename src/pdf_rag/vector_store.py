@@ -70,7 +70,7 @@ def ingest_pending_pdfs():
             )
             for cid in old_chunks["ids"]:
                 collection.update(ids=[cid], metadatas=[{"is_active": False}])
-            print(f"🔄 Updating '{base_name}' (Deactivating v{old_version} chunks)")
+            print(f"🔄 Updating '{source_name}' (Deactivating v{old_version} chunks)")
         
         current_version = register_document_version(registry, source_name, full_text)
         print(f"🆕 Indexing '{source_name}' as Version {current_version}")
@@ -111,7 +111,7 @@ def ingest_pending_pdfs():
     save_registry(registry)
     refresh_document_catalog(registry)
 
-def retrieve_context(query, k=5):
+def retrieve_context(query, k=5, filter_source=None):
     """Retrieve active document chunks or the catalog, with citations for answers."""
     query_embedding = list(get_cached_embedding(query))
 
@@ -122,10 +122,19 @@ def retrieve_context(query, k=5):
             return results["documents"][0], {"[SYSTEM_CATALOG]"}
 
     # Retrieve ACTIVE version chunks
+    where_filter = {"is_active": True}
+    if filter_source:
+        where_filter = {
+            "$and": [
+                {"is_active": {"$eq": True}},
+                {"source": {"$eq": filter_source}},
+            ]
+        }
+
     results = collection.query(
         query_embeddings=[query_embedding],
         n_results=k,
-        where={"is_active": True}
+        where=where_filter,
     )
     
     docs = results['documents'][0]

@@ -5,6 +5,7 @@ venv/
 env/
 .venv/
 *.egg-info/
+.env
 
 # Local runtime data and databases
 data/inbox/
