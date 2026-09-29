@@ -1,11 +1,14 @@
 """Tests for LangChain provider/model selection."""
 
 import os
+import io
 import unittest
+from contextlib import redirect_stdout
 from unittest.mock import patch
 from types import SimpleNamespace
 
 from pdf_rag.chat_model import (
+    collect_model_usage,
     get_chat_selection,
     invoke_chat,
     resolve_chat_settings,
@@ -82,6 +85,67 @@ class ChatModelSelectionTests(unittest.TestCase):
         self.assertEqual(answer, "fallback answer")
         self.assertEqual(create_model.call_args_list[1].kwargs["provider"], "ollama")
         self.assertEqual(create_model.call_args_list[1].kwargs["model"], "llama3.2")
+
+    def test_invoke_prints_model_return_to_python_terminal(self):
+        """Print the actual returned text with provider and model labels."""
+        response_model = SimpleNamespace(
+            invoke=lambda _messages: SimpleNamespace(content="The policy grants 12 days.")
+        )
+        output = io.StringIO()
+
+        with patch("pdf_rag.chat_model._active_provider", "claude"), patch(
+            "pdf_rag.chat_model._active_model", "claude-sonnet-4-5"
+        ), patch("pdf_rag.chat_model._create_chat_model", return_value=response_model), redirect_stdout(output):
+            result = invoke_chat([{"role": "user", "content": "How many days?"}])
+
+        self.assertEqual(result, "The policy grants 12 days.")
+        logged_response = output.getvalue()
+        self.assertIn("MODEL RESPONSE", logged_response)
+        self.assertIn("Provider: claude", logged_response)
+        self.assertIn("Model: claude-sonnet-4-5", logged_response)
+        self.assertIn("The policy grants 12 days.", logged_response)
+
+    def test_invoke_collects_provider_token_usage(self):
+        """Capture prompt, completion, and total counts for this model call."""
+        response = SimpleNamespace(
+            content="The policy grants 12 days.",
+            usage_metadata={
+                "input_tokens": 120,
+                "output_tokens": 9,
+                "total_tokens": 129,
+            },
+        )
+        response_model = SimpleNamespace(invoke=lambda _messages: response)
+
+        with patch("pdf_rag.chat_model._active_provider", "claude"), patch(
+            "pdf_rag.chat_model._active_model", "claude-sonnet-4-5"
+        ), patch("pdf_rag.chat_model._create_chat_model", return_value=response_model):
+            with collect_model_usage() as usage_records:
+                invoke_chat(
+                    [{"role": "user", "content": "How many days?"}],
+                    operation="answer_draft",
+                )
+
+        self.assertEqual(len(usage_records), 1)
+        self.assertEqual(usage_records[0]["operation"], "answer_draft")
+        self.assertEqual(usage_records[0]["input_tokens"], 120)
+        self.assertEqual(usage_records[0]["output_tokens"], 9)
+        self.assertEqual(usage_records[0]["total_tokens"], 129)
+
+    def test_invoke_marks_provider_usage_unavailable(self):
+        """Report missing provider token metadata as unavailable, not zero."""
+        response_model = SimpleNamespace(
+            invoke=lambda _messages: SimpleNamespace(content="An answer.")
+        )
+
+        with patch("pdf_rag.chat_model._active_provider", "claude"), patch(
+            "pdf_rag.chat_model._active_model", "claude-sonnet-4-5"
+        ), patch("pdf_rag.chat_model._create_chat_model", return_value=response_model):
+            with collect_model_usage() as usage_records:
+                invoke_chat([{"role": "user", "content": "Question?"}])
+
+        self.assertFalse(usage_records[0]["available"])
+        self.assertNotIn("total_tokens", usage_records[0])
 
     def test_claude_stream_failure_before_first_chunk_falls_back(self):
         """Start the answer from Ollama if Claude fails before streaming text."""

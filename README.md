@@ -33,6 +33,8 @@ Application code is in `src/pdf_rag`; PDFs, ChromaDB files, and registry state a
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m pip install -e .
 python -m pip install -e .
 ollama pull nomic-embed-text
 ollama pull llama3.2
@@ -60,8 +62,27 @@ The chat model can be changed at runtime with `/provider ollama`, `/provider gem
 Put new PDFs in `data/inbox/`, then launch from the project root:
 
 ```bash
-python -m pdf_rag
+.venv/bin/python -m pdf_rag
 ```
+
+## Web App
+
+Start the API from the `python/` directory. Call the interpreter inside `.venv` directly; shell activation is not required:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m uvicorn pdf_rag.api:app --app-dir src --host 127.0.0.1 --port 8000 --reload
+```
+
+In another terminal, start the React client:
+
+```bash
+cd ../FE
+npm run dev
+```
+
+`PYTHONPATH=src` sets the package search path for the command that follows it. Do not run `PYTHONPATH=src -m uvicorn`: `-m` is an argument to Python, so it must follow the Python executable.
+
+Open `http://localhost:5173`. The web app streams verified chat answers, displays citations, accepts PDF uploads for indexing, and lists processed documents with version counts. Keep the Python API running while using the frontend.
 
 The app indexes pending PDFs, moves processed files into `data/archive/`, and stores embeddings in `data/vector_db/`. Enter `exit` to end the chat.
 

@@ -1,5 +1,7 @@
 """LangChain-backed chat model selection for Ollama, Gemini, and Claude."""
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 import os
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -18,6 +20,7 @@ _PROVIDER_API_KEYS = {
     "gemini": "GOOGLE_API_KEY",
     "claude": "ANTHROPIC_API_KEY",
 }
+_model_usage_records = ContextVar("model_usage_records", default=None)
 
 
 def resolve_chat_settings(provider=None, model=None):
@@ -125,13 +128,104 @@ def _content_to_text(content):
     return str(content)
 
 
-def invoke_chat(messages, temperature=0.0, max_tokens=256):
+def _log_model_output(provider, model_name, operation, output):
+    """Print the text returned by a model call to the Python server terminal."""
+    print(
+        f"\n{'=' * 20} MODEL RESPONSE {'=' * 20}\n"
+        f"Provider: {provider}\n"
+        f"Model: {model_name}\n"
+        f"Operation: {operation}\n\n"
+        f"{output}\n"
+        f"{'=' * 56}\n",
+        flush=True,
+    )
+
+
+def _extract_token_usage(response):
+    """Normalize token counts exposed by LangChain/provider response metadata."""
+    usage = getattr(response, "usage_metadata", None)
+    if not usage:
+        response_metadata = getattr(response, "response_metadata", {}) or {}
+        usage = (
+            response_metadata.get("token_usage")
+            or response_metadata.get("usage")
+            or response_metadata.get("usage_metadata")
+        )
+    if not isinstance(usage, dict):
+        return None
+
+    input_tokens = usage.get("input_tokens", usage.get("prompt_tokens"))
+    output_tokens = usage.get("output_tokens", usage.get("completion_tokens"))
+    total_tokens = usage.get("total_tokens")
+    if total_tokens is None and input_tokens is not None and output_tokens is not None:
+        total_tokens = input_tokens + output_tokens
+
+    if input_tokens is None and output_tokens is None and total_tokens is None:
+        return None
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
+    }
+
+
+def _record_token_usage(provider, model_name, operation, response):
+    """Store usage metadata for the current chat request and log it to the API terminal."""
+    usage = _extract_token_usage(response)
+    record = {
+        "provider": provider,
+        "model": model_name,
+        "operation": operation,
+        "available": usage is not None,
+        **(usage or {}),
+    }
+    records = _model_usage_records.get()
+    if records is not None:
+        records.append(record)
+    if usage is None:
+        print(
+            f"[MODEL TOKEN USAGE] {provider}/{model_name} {operation}: "
+            "usage metadata unavailable from provider",
+            flush=True,
+        )
+    else:
+        print(
+            f"[MODEL TOKEN USAGE] {provider}/{model_name} {operation}: "
+            f"input={usage['input_tokens']} output={usage['output_tokens']} "
+            f"total={usage['total_tokens']}",
+            flush=True,
+        )
+    return record
+
+
+@contextmanager
+def collect_model_usage():
+    """Collect per-call token usage generated within one RAG answer operation."""
+    records = []
+    context_token = _model_usage_records.set(records)
+    try:
+        yield records
+    finally:
+        _model_usage_records.reset(context_token)
+
+
+def invoke_chat(messages, temperature=0.0, max_tokens=256, operation="invoke"):
     """Invoke the primary model, falling back to Ollama if Claude fails."""
-    provider, _ = resolve_chat_settings()
+    provider, model_name = resolve_chat_settings()
     try:
         model = _create_chat_model(temperature, max_tokens)
         response = model.invoke(_to_langchain_messages(messages))
-        return _content_to_text(response.content)
+        print(
+            f"\n{'=' * 20} MODEL RESPONSE123 {'=' * 20}\n"
+            f"response: {response}\n"
+            f"Provider: {provider}\n"
+            f"Model: {model_name}\n"
+            f"Operation: {operation}\n\n"
+            f"{_content_to_text(response.content)}\n")
+        output = _content_to_text(response.content)
+        _record_token_usage(provider, model_name, operation, response)
+        # _log_model_output(provider, model_name, operation, output)
+        return output
     except Exception as primary_error:
         if provider != "claude" or FALLBACK_PROVIDER == provider:
             raise
@@ -146,12 +240,23 @@ def invoke_chat(messages, temperature=0.0, max_tokens=256):
             model=FALLBACK_MODEL,
         )
         response = fallback_model.invoke(_to_langchain_messages(messages))
-        return _content_to_text(response.content)
+        output = _content_to_text(response.content)
+        fallback_operation = f"{operation} fallback"
+        _record_token_usage(FALLBACK_PROVIDER, FALLBACK_MODEL, fallback_operation, response)
+        _log_model_output(
+            FALLBACK_PROVIDER,
+            FALLBACK_MODEL,
+            fallback_operation,
+            output,
+        )
+        return output
 
 
 def stream_chat(messages, temperature=0.1, max_tokens=512):
     """Stream from Claude, using Ollama if Claude fails before producing text."""
-    provider, _ = resolve_chat_settings()
+    provider, model_name = resolve_chat_settings()
+    response_provider = provider
+    response_model = model_name
     try:
         model = _create_chat_model(temperature, max_tokens)
         chunks = iter(model.stream(_to_langchain_messages(messages)))
@@ -172,13 +277,17 @@ def stream_chat(messages, temperature=0.1, max_tokens=512):
             provider=FALLBACK_PROVIDER,
             model=FALLBACK_MODEL,
         )
+        response_provider = FALLBACK_PROVIDER
+        response_model = FALLBACK_MODEL
         chunks = fallback_model.stream(_to_langchain_messages(messages))
     else:
         first_text = _content_to_text(first_chunk.content)
         if first_text:
+            _log_model_output(provider, model_name, "stream chunk", first_text)
             yield first_text
 
     for chunk in chunks:
         text = _content_to_text(chunk.content)
         if text:
+            _log_model_output(response_provider, response_model, "stream chunk", text)
             yield text

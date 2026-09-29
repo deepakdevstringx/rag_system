@@ -146,6 +146,7 @@ def summarize_document_version_changes(user_query, comparison_context, chat_hist
         ],
         temperature=0.0,
         max_tokens=1200,
+        operation="version_change_summary",
     )
 
 
@@ -158,22 +159,23 @@ def optimize_and_normalize_query(user_query, chat_history):
 
     prompt = f"""You are an enterprise query optimizer for a RAG search system.
 
-Task:
-1. Fix all typos, spelling errors, and grammatical mistakes (e.g., 'compmany' -> 'company').
-2. If this is a follow-up question, resolve pronouns/references using Conversation History.
-3. If the user changed topics completely, optimize the new question independently.
-4. Return ONLY the final search query string.
+    Task:
+    1. Fix all typos, spelling errors, and grammatical mistakes (e.g., 'compmany' -> 'company').
+    2. If this is a follow-up question, resolve pronouns/references using Conversation History.
+    3. If the user changed topics completely, optimize the new question independently.
+    4. Return ONLY the final search query string.
 
-Conversation History:
-{recent_history if recent_history else "None"}
+    Conversation History:
+    {recent_history if recent_history else "None"}
 
-User Input: {user_query}
-Optimized Search Query:"""
+    User Input: {user_query}
+    Optimized Search Query:"""
 
     cleaned_query = invoke_chat(
         [{"role": "user", "content": prompt}],
         temperature=0.0,
         max_tokens=100,
+        operation="query_rewrite",
     ).strip()
     return cleaned_query if cleaned_query else user_query
 
@@ -185,26 +187,28 @@ def evaluate_response_sufficiency(user_query, context, draft_answer):
         return False, "Context lacks necessary details."
 
     prompt = f"""You are a quality validator for a search assistant.
-Evaluate if the draft answer provides relevant, useful information from the retrieved context to address the user's question.
+        Evaluate if the draft answer provides relevant, useful information from the retrieved context to address the user's question.
 
-User Question: {user_query}
-Draft Answer: {draft_answer}
+        User Question: {user_query}
+        Draft Answer: {draft_answer}
 
-Respond strictly in JSON:
-{{
-  "sufficient": true,
-  "reason": ""
-}}
-or
-{{
-  "sufficient": false,
-  "reason": "Brief reason why"
-}}
-"""
+        Respond strictly in JSON:
+        {{
+        "sufficient": true,
+        "reason": ""
+        }}
+        or
+        {{
+        "sufficient": false,
+        "reason": "Brief reason why"
+        }}
+        """
+    
     validation_response = invoke_chat(
         [{"role": "user", "content": prompt}],
         temperature=0.0,
         max_tokens=100,
+        operation="answer_verification",
     )
     try:
         data = json.loads(validation_response.strip())
@@ -222,17 +226,18 @@ def find_target_document_from_catalog(user_query):
 
     catalog_text = catalog_res["documents"][0]
     prompt = f"""Catalog Index:
-{catalog_text}
+    {catalog_text}
 
-Question: {user_query}
+    Question: {user_query}
 
-Identify which single filename from the catalog index is most relevant.
-OUTPUT FORMAT RULE: Output ONLY the raw filename (e.g. 'Group_Health_Floater.pdf') or 'NONE'. Do not include explanations, bullet points, or introductory text."""
+    Identify which single filename from the catalog index is most relevant.
+    OUTPUT FORMAT RULE: Output ONLY the raw filename (e.g. 'Group_Health_Floater.pdf') or 'NONE'. Do not include explanations, bullet points, or introductory text."""
 
     raw_output = invoke_chat(
         [{"role": "user", "content": prompt}],
         temperature=0.0,
         max_tokens=30,
+        operation="catalog_document_selection",
     ).strip()
     
     # Extra safety: extract filename pattern using regex if LLM still includes extra text

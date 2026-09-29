@@ -9,13 +9,16 @@ description = "Local PDF question answering with ChromaDB and Ollama"
 requires-python = ">=3.10"
 dependencies = [
     "chromadb",
+    "fastapi",
     "langchain-anthropic",
     "langchain-core",
     "langchain-google-genai",
     "langchain-ollama",
     "ollama",
     "pypdf",
+    "python-multipart",
     "python-dotenv",
+    "uvicorn[standard]",
 ]
 
 [tool.setuptools.packages.find]

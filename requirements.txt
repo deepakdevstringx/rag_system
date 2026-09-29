@@ -1,5 +1,6 @@
 # Vector storage and PDF parsing
 chromadb
+fastapi
 pypdf
 
 # Existing Ollama embeddings and local chat provider
@@ -13,3 +14,5 @@ langchain-anthropic
 
 # Load local configuration from .env
 python-dotenv
+python-multipart
+uvicorn[standard]
